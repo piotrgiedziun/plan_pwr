@@ -7,6 +7,8 @@ class Logger:
 	LOGIN_URL = 'https://edukacja.pwr.wroc.pl/EdukacjaWeb/logInUser.do'
 	ZAPISY_COOKIES_URL = 'https://edukacja.pwr.wroc.pl/EdukacjaWeb/zapisy.do?event=WyborSluchacza'
 	ZAPISY_URL = 'https://edukacja.pwr.wroc.pl/EdukacjaWeb/zapisy.do?href=#hrefZapisySzczSlu'
+	ZAPISY_GUIDE_LINE_URL = 'https://edukacja.pwr.wroc.pl/EdukacjaWeb/zapisy.do'
+	ZAPISY_GUIDE_LINE_COOKIES_URL = 'https://edukacja.pwr.wroc.pl/EdukacjaWeb/zapisy.do?event=WyborSluchacza'
 	TERMINY_URL = 'https://edukacja.pwr.wroc.pl/EdukacjaWeb/terminyGrupy.do'
 	LOGOUT_URL = 'https://edukacja.pwr.wroc.pl/EdukacjaWeb/logOutUser.do'
 	
@@ -18,7 +20,7 @@ class Logger:
 		
 		token = self._get_token()
 		login_data['cl.edu.web.TOKEN'] = token
-		
+
 		login_r = requests.post(self.LOGIN_URL, data=login_data, cookies=self.last_cookie, allow_redirects=True)
 		login_r_code = login_r.text.encode('utf-8')
 		
@@ -76,7 +78,11 @@ class Logger:
 		p = re.compile(r'<td class="BIALA">(?P<id>.*?)</td>', re.DOTALL)
 		kursy = []
 		for kurs in self._group(p.findall(code), 6):
-			kursy.append("[%s] %s" % (kurs[5].strip().decode('utf-8')[0].upper(), kurs[1].strip().decode('utf-8')))
+			course_code = kurs[5].strip().decode('utf-8')[0].upper()
+			if course_code == "Z":
+				course_code = "L"
+			
+			kursy.append("[%s] %s" % (course_code, kurs[1].strip().decode('utf-8')))
 		
 		p = re.compile(r'<input type="hidden" name="grzId" value="(?P<id>[0-9]+)">')
 		m = p.findall(code)
@@ -105,6 +111,7 @@ class Logger:
 
 		for curse_group in curses:
 			for curse in self._group(curse_group['data'], 7):
+				print curse
 				data = curse[1].split('-')
 				time_start = curse[2].split(':')
 				time_end = curse[3].split(':')
@@ -129,16 +136,25 @@ class Logger:
 		
 	def _get_schedule(self):
 		# get schedule
-		zapisy_cookies_r = requests.get(self.ZAPISY_COOKIES_URL, params={'clEduWebSESSIONTOKEN': self.session}, cookies=self.last_cookie)
+		zapisy_cookies_r = requests.get(self.ZAPISY_GUIDE_LINE_COOKIES_URL, params={'clEduWebSESSIONTOKEN': self.session}, cookies=self.last_cookie)
+		zapisy_cookies_html = zapisy_cookies_r.text.encode('utf-8')
+		token = self._parse_token(zapisy_cookies_html)
 
-		token = self._parse_token(zapisy_cookies_r.text.encode('utf-8'))
-		
+		# check if there is guide line option
+		if "(Aktywny)" in zapisy_cookies_html:
+			# get id
+			p = re.compile(r'<option value="(?P<id>[0-9]+)" selected>')
+			m = p.findall(zapisy_cookies_html)
+			data = {'ineSluId':m[0], 'event_WyborSluchaczaSubmit':'Wybierz','clEduWebSESSIONTOKEN': self.session, 'cl.edu.web.TOKEN': token}
+			guide_line_r = requests.post(self.ZAPISY_GUIDE_LINE_URL, data=data, cookies=self.last_cookie)
+			token = self._parse_token(guide_line_r.text.encode('utf-8'))
+
 		zapisy_data = {'clEduWebSESSIONTOKEN': self.session,
 			'cl.edu.web.TOKEN': token,
 			'event_WyborZapisowWidok': 'Przełącz na <Grupy zajęciowe, do których słuchacz jest zapisany w semestrze>'
 		}
 
-		zapisy_r = requests.post(self.ZAPISY_URL, cookies=zapisy_cookies_r.cookies, data=zapisy_data, allow_redirects=True)
+		zapisy_r = requests.post(self.ZAPISY_URL, cookies=self.last_cookie, data=zapisy_data, allow_redirects=True)
 	
 		# set cookie
 		self.last_cookie = zapisy_r.cookies
@@ -162,7 +178,7 @@ class Logger:
 		self.last_cookie = curse_r.cookies
 		
 		# parse code - only next
-		p = re.compile(r'<td class="BIALA" align="center" style="background-color: #aafaaa !important;">(?P<data>.+)</td>', re.UNICODE)
+		p = re.compile(r'<td class="BIALA" align="center" style="background-color: #aafaaa !important;">(?P<data>.*)</td>', re.UNICODE)
 		m = p.findall(curse_r.text.encode('utf-8'))
 		
 		return m
@@ -178,6 +194,7 @@ class Logger:
 if __name__ == "__main__":
 	login = raw_input("Login: ")
 	password = getpass.getpass()
+	
 	#gogo
 	l = Logger()
 	l.login(login, password)

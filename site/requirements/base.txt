@@ -1,0 +1,5 @@
+Django==1.5.4
+South==0.7.6
+pyyaml==3.10
+Celery
+django-celery==3.0.23
